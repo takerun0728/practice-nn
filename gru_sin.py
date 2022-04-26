@@ -13,14 +13,14 @@ BATCH = 8
 N_TIME = 10
 NOISE_AMP = 0.1
 
-class LSTMNetwork(AbstractNetwork):
+class GRUNetwork(AbstractNetwork):
     def __init__(self, mid_neuron_num=DEF_MID_NEURON_NUM, optimizer='momentum', opt_params=DEF_OPT_PARAM, lam=DEF_LAMBDA):
         super().__init__()
-        self.layers = [LSTMLayer(1, mid_neuron_num, optimizer=optimizer, opt_params=opt_params, lam=lam)]
+        self.layers = [GRULayer(1, mid_neuron_num, optimizer=optimizer, opt_params=opt_params, lam=lam)]
         self.layers.append(OutputLayer(mid_neuron_num, 1, activate_func='identify', opt_params=opt_params, lam=lam))
 
 if __name__ == '__main__':
-    network = LSTMNetwork()
+    network = GRUNetwork()
 
     sin_x = np.linspace(-4*np.pi, 4*np.pi)
     sin_y = np.sin(sin_x) + NOISE_AMP * np.random.randn(len(sin_x))

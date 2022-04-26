@@ -1,4 +1,5 @@
-import numpy as np
+#import numpy as np
+import cupy as np
 
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
@@ -331,7 +332,7 @@ class LSTMLayer(Layer):
     def __init__(self, n_upper, n, optimizer='sgd', opt_params={'eta':0.1}, lam=0, is_out_mult=False):
         self.w = np.random.randn(4, n_upper, n) / np.sqrt(n_upper)
         self.v = np.random.randn(4, n, n) / np.sqrt(n)
-        self.b = np.zeros((4, 1, n))
+        self.b = np.zeros((4, n))
         self.optimizer_w = set_optimizer(optimizer, opt_params)
         self.optimizer_v = set_optimizer(optimizer, opt_params)
         self.optimizer_b = set_optimizer(optimizer, opt_params)
@@ -341,7 +342,8 @@ class LSTMLayer(Layer):
         self.reset()
 
     def forward(self, x, is_train): 
-        y = np.zeros((x.shape[0], self.b.size))
+        y = np.zeros((x.shape[0], self.b.shape[1]))
+        c = 0
         x_list = x.transpose(1, 0, 2)
         if is_train or self.is_out_mult:
             self.ys = [y]
@@ -351,7 +353,7 @@ class LSTMLayer(Layer):
             self.cs = [y] #the shape of c is same as y
         
         for x_tmp in x_list:
-            u = x_tmp @ self.w + y @ self.v + self.b
+            u = x_tmp @ self.w + y @ self.v + self.b.reshape(4, 1, -1)
             a0 = sigmoid(u[0])
             a1 = sigmoid(u[1])
             a2 = tanh(u[2])
@@ -376,11 +378,11 @@ class LSTMLayer(Layer):
         delta_a2 = r * a1 * tanh_deriv(0, a2)
         delta_a3 = grad_o * tanh_c * sigmoid_deriv(0, a3)
         deltas = np.stack((delta_a0, delta_a1, delta_a2, delta_a3))
-        self.grad_w += x.T @ deltas
-        self.grad_v += y_prev.T @ deltas
+        self.grad_w += x.T @ deltas + self.w * self.lam
+        self.grad_v += y_prev.T @ deltas + self.v * self.lam
         self.grad_b += np.sum(deltas, axis=1)
-        grad_x = deltas, self.w.transpose(0, 2, 1).sum(axis=0)
-        grad_y = deltas, self.v.transpose(0, 2, 1).sum(axis=0)
+        grad_x = (deltas @ self.w.transpose(0, 2, 1)).sum(axis=0)
+        grad_y = (deltas @ self.v.transpose(0, 2, 1)).sum(axis=0)
         grad_c = r * a0
 
         return grad_x, grad_y, grad_c
@@ -391,18 +393,102 @@ class LSTMLayer(Layer):
         if self.is_out_mult:
             grad = grad.transpose(1, 0, 2)
             grad_xs = []
-            for x, y, y_prev, gate, c, c_prev, grad_out in zip(self.xs[::-1], self.ys[-1::-1], self.ys[-2::-1], self.gates, self.cs[-1::-1], self.cs[-2::-1], grad[::-1]):
+            for x, y, y_prev, gate, c, c_prev, grad_out in zip(self.xs[::-1], self.ys[-1::-1], self.ys[-2::-1], self.gates[-1::-1], self.cs[-1::-1], self.cs[-2::-1], grad[::-1]):
                 grad_o += grad_out
                 grad_x, grad_o, grad_c = self.calc_grad(grad_o, grad_c, y, x, y_prev, gate, c, c_prev)
                 grad_xs.append(grad_x)
-                y_prev = y
             return np.array(grad_xs)
         else:
             grad_o += grad
-            for x, y, y_prev, gate, c, c_prev in zip(self.xs[::-1], self.ys[-1::-1], self.ys[-2::-1], self.gates, self.cs[-1::-1], self.cs[-2::-1], grad[::-1]):
+            for x, y, y_prev, gate, c, c_prev in zip(self.xs[::-1], self.ys[-1::-1], self.ys[-2::-1], self.gates[-1::-1], self.cs[-1::-1], self.cs[-2::-1]):
                 grad_x, grad_o, grad_c = self.calc_grad(grad_o, grad_c, y, x, y_prev, gate, c, c_prev)
-                y_prev = y
-            return self.grad_x
+            return grad_x
+
+    def reset(self):
+        self.grad_w = np.zeros_like(self.w)
+        self.grad_v = np.zeros_like(self.v)
+        self.grad_b = np.zeros_like(self.b)
+
+    def update(self):
+        super().update()
+        self.v += self.optimizer_v(self.grad_v)
+        self.reset()
+
+class GRULayer(Layer):
+    def __init__(self, n_upper, n, optimizer='sgd', opt_params={'eta':0.1}, lam=0, is_out_mult=False):
+        self.w = np.random.randn(3, n_upper, n) / np.sqrt(n_upper)
+        self.v = np.random.randn(3, n, n) / np.sqrt(n)
+        self.b = np.zeros((3, n))
+        self.optimizer_w = set_optimizer(optimizer, opt_params)
+        self.optimizer_v = set_optimizer(optimizer, opt_params)
+        self.optimizer_b = set_optimizer(optimizer, opt_params)
+        self.opt_params = opt_params
+        self.lam = lam
+        self.is_out_mult = is_out_mult
+        self.reset()
+
+    def forward(self, x, is_train): 
+        y = np.zeros((x.shape[0], self.b.shape[1]))
+        x_list = x.transpose(1, 0, 2)
+        if is_train or self.is_out_mult:
+            self.ys = [y]
+        if is_train:    
+            self.xs = x_list
+            self.gates = []
+        
+        for x_tmp in x_list:
+            a0 = sigmoid(x_tmp @ self.w[0] + y @ self.v[0] + self.b[0].reshape(1, -1))
+            a1 = sigmoid(x_tmp @ self.w[1] + y @ self.v[1] + self.b[1].reshape(1, -1))
+            a2 = tanh(x_tmp @ self.w[2] + (a1 * y) @ self.v[2] + self.b[2].reshape(1, -1))
+            
+            y = (1 - a0) * y + a0 * a2  
+            if is_train:
+                self.ys.append(y)
+                self.gates.append((a0, a1, a2))
+        if self.is_out_mult:
+            return np.array(self.ys[1:]).transpose(1, 0, 2)
+        else:
+            return y
+
+    def calc_grad(self, grad_o, x, y_prev, gate):
+        a0, a1, a2 = gate
+        delta_a2 = grad_o * a0 * tanh_deriv(0, a2)
+        self.grad_w[2] = x.T @ delta_a2
+        self.grad_v[2] = (a1 * y_prev).T @ delta_a2
+        self.grad_b[2] = np.sum(delta_a2, axis=0)
+
+        s = delta_a2 @ self.v[2].T
+        delta_a1 = s * y_prev * sigmoid_deriv(0, a1)
+        self.grad_w[1] = x.T @ delta_a1
+        self.grad_v[1] = y_prev.T @ delta_a1
+        self.grad_b[1] = np.sum(delta_a1, axis=0)
+
+        delta_a0 = grad_o * (a2 - y_prev) * sigmoid_deriv(0, a0)
+        self.grad_w[0] = x.T @ delta_a0
+        self.grad_v[0] = y_prev.T @ delta_a0
+        self.grad_b[0] = np.sum(delta_a0, axis=0)
+
+        grad_x = delta_a0 @ self.w[0].T + delta_a1 @ self.w[1].T + delta_a2 @ self.w[2].T
+        grad_y = delta_a0 @ self.v[0].T + delta_a1 @ self.v[2].T + a1 * s + grad_o * (1 - a0)
+
+        return grad_x, grad_y
+
+    def backward(self, grad):
+        grad_o = 0
+        
+        if self.is_out_mult:
+            grad = grad.transpose(1, 0, 2)
+            grad_xs = []
+            for x, y_prev, gate, grad_out in zip(self.xs[::-1], self.ys[-2::-1], self.gates[-1::-1], grad[::-1]):
+                grad_o += grad_out
+                grad_x, grad_o = self.calc_grad(grad_o, x, y_prev, gate)
+                grad_xs.append(grad_x)
+            return np.array(grad_xs)
+        else:
+            grad_o += grad
+            for x, y_prev, gate in zip(self.xs[::-1], self.ys[-2::-1], self.gates[-1::-1]):
+                grad_x, grad_o = self.calc_grad(grad_o, x, y_prev, gate)
+            return grad_x
 
     def reset(self):
         self.grad_w = np.zeros_like(self.w)
@@ -435,3 +521,4 @@ class AbstractNetwork():
     def update(self):
         for layer in self.layers:
             layer.update()
+

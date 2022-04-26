@@ -1,7 +1,4 @@
-import matplotlib.pyplot as plt
-import numpy as np
 from neural_lib import *
-np.random.seed(0)
 
 DEF_MID_NEURON_NUM = 32
 DEF_OPT = 'momentum'
@@ -13,10 +10,10 @@ DRAW_INTERVAL = 1000
 BATCH = 16
 N_TIME = 8
 
-class MultOutRNNNetwork(AbstractNetwork):
+class MultOutLSTMNetwork(AbstractNetwork):
     def __init__(self, mid_neuron_num=DEF_MID_NEURON_NUM, optimizer=DEF_OPT, opt_params=DEF_OPT_PARAM, lam=DEF_LAMBDA):
         super().__init__()
-        self.layers = [RNNLayer(2, mid_neuron_num, optimizer=optimizer, opt_params=opt_params, lam=lam, is_out_mult=True)]
+        self.layers = [LSTMLayer(2, mid_neuron_num, optimizer=optimizer, opt_params=opt_params, lam=lam, is_out_mult=True)]
         self.layers.append(Layer(mid_neuron_num, 1, activate_func='sigmoid', opt_params=opt_params, lam=lam))
 
     def forward(self, x):
@@ -33,7 +30,7 @@ class MultOutRNNNetwork(AbstractNetwork):
         grad = self.layers[0].backward(grad.reshape(n_b, n_t, -1))
 
 if __name__ == '__main__':
-    network = MultOutRNNNetwork()
+    network = MultOutLSTMNetwork()
 
     max_num = 2**N_TIME
     binaries = np.zeros((max_num, N_TIME), dtype=np.int32)

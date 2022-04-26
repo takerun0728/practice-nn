@@ -1,5 +1,11 @@
 import matplotlib.pyplot as plt
-import numpy as np
+
+GPU = False
+if GPU:
+    import cupy as np
+else:
+    import numpy as np
+
 from neural_lib import *
 
 MID_LAYER_NUM = 3
@@ -12,10 +18,11 @@ BATCH = 64
 EPS = 1e-7
 
 class ClassificationNetwork(AbstractNetwork):
-    def __init__(self, mid_layer_num, mid_neuron_num, activate_func='relu', wb_width=1.0, optimizer='sgd', opt_params={'eta':0.001, 'rho':0.9, 'alpha':0.9}, lam=0.01):
-        self.layers = [Layer(2, mid_neuron_num, activate_func=activate_func, wb_width=wb_width, optimizer=optimizer, opt_params=opt_params, lam=lam)]
+    def __init__(self, mid_layer_num, mid_neuron_num, activate_func='relu', optimizer='sgd', opt_params={'eta':0.001, 'rho':0.9, 'alpha':0.9}, lam=0.01):
+        super().__init__()
+        self.layers = [Layer(2, mid_neuron_num, activate_func=activate_func, optimizer=optimizer, opt_params=opt_params, lam=lam)]
         for _ in range(mid_layer_num - 1):
-            self.layers.append(Layer(mid_neuron_num, mid_neuron_num, activate_func=activate_func,  wb_width=wb_width, optimizer=optimizer, opt_params=opt_params, lam=lam))
+            self.layers.append(Layer(mid_neuron_num, mid_neuron_num, activate_func=activate_func,  optimizer=optimizer, opt_params=opt_params, lam=lam))
         self.layers.append(OutputLayer(mid_neuron_num, 2, activate_func='softmax', opt_params=opt_params, lam=lam))
 
 def generate_train_data():
@@ -23,6 +30,9 @@ def generate_train_data():
     y = np.arange(-1, 1, INPUT_GAP)
     y_sin = np.sin(x * np.pi)
     xx, yy = np.meshgrid(x, y)
+    if GPU:
+        x = x.get()
+        y_sin = y_sin.get()
     xx = xx.flatten()
     yy = yy.flatten()
     data_in = np.stack([xx, yy], 1)
@@ -64,10 +74,14 @@ if __name__ == '__main__':
                 error += -np.sum(out_label * np.log(inference + EPS))
 
             if draw_flag:
-                plot_x1.extend([x for x, out in zip(d_in[:, 0], inference) if out[0] > out[1]])
-                plot_y1.extend([y for y, out in zip(d_in[:, 1], inference) if out[0] > out[1]])
-                plot_x2.extend([x for x, out in zip(d_in[:, 0], inference) if out[0] <= out[1]])
-                plot_y2.extend([y for y, out in zip(d_in[:, 1], inference) if out[0] <= out[1]])
+                if GPU:
+                    tmp_d_in = d_in.get()
+                else:
+                    tmp_d_in = d_in
+                plot_x1.extend([x for x, out in zip(tmp_d_in[:, 0], inference) if out[0] > out[1]])
+                plot_y1.extend([y for y, out in zip(tmp_d_in[:, 1], inference) if out[0] > out[1]])
+                plot_x2.extend([x for x, out in zip(tmp_d_in[:, 0], inference) if out[0] <= out[1]])
+                plot_y2.extend([y for y, out in zip(tmp_d_in[:, 1], inference) if out[0] <= out[1]])
 
             start += BATCH
 

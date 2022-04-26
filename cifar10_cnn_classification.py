@@ -1,26 +1,30 @@
 from sklearn import datasets
 import matplotlib.pyplot as plt
-import numpy as np
 from neural_lib import *
 import pickle
 
-DEF_MID_NEURON_NUM = 50
+GPU = True
+if GPU:
+    import cupy as np
+else:
+    import numpy as np
+
+DEF_MID_NEURON_NUM = 128
 EPOCH = 100
 LOG_INTERVAL = 1
-BATCH = 64
-DEF_FLT_NUM = 5
+BATCH = 128
+DEF_FLT_NUM = 10
 DEF_FLT_SIZE = 3
 DEF_ACT_FUNC = 'relu'
-DEF_WB_WIDTH = 0.1
 DEF_OPT = 'momentum'
 DEF_OPT_PARAM = {'eta':0.01, 'rho':0.9, 'alpha':0.9}
-DEF_LAM = 0.1
+DEF_LAM = 0.0
 DEF_DROPOUT = 0
 
 class ImageClassificationNetwork(AbstractNetwork):
     def __init__(self, img_ch, img_h, img_w, n_flt=DEF_FLT_NUM, flt_h=DEF_FLT_SIZE, flt_w=DEF_FLT_SIZE,
                  mid_neuron_num=DEF_MID_NEURON_NUM, activate_func=DEF_ACT_FUNC,
-                 optimizer=DEF_OPT, opt_params=DEF_OPT_PARAM, lam=DEF_LAM, dropout=DEF_DROPOUT):
+                 optimizer=DEF_OPT, opt_params=DEF_OPT_PARAM, lam=DEF_LAM):
         super().__init__()
         self.layers = [ConvLayer(img_ch, img_h, img_w, n_flt, flt_h, flt_w, 1, 1, activate_func=activate_func, optimizer=optimizer, opt_params=opt_params, lam=lam)]
         self.layers.append(PoolingLayer(self.layers[0].y_ch, self.layers[0].y_h, self.layers[0].y_w, 2, 0))
@@ -93,7 +97,7 @@ if __name__ == '__main__':
             
             if log_flag:
                 error_train += -np.sum(output * np.log(inference + 1e-7))
-                accuracy_train += np.sum(output.argmax(axis=1) == inference.argmax(axis=1))
+                accuracy_train += np.sum(output.argmax(axis=1) == inference.argmax(axis=1), dtype=np.float32)
 
             start += BATCH
 
@@ -105,7 +109,7 @@ if __name__ == '__main__':
                 output = correct_test[index_test[start:start+BATCH], :]
                 inference = network.forward(input)
                 error_test += -np.sum(output * np.log(inference + 1e-7))
-                accuracy_test += np.sum(output.argmax(axis=1) == inference.argmax(axis=1))
+                accuracy_test += np.sum(output.argmax(axis=1) == inference.argmax(axis=1), dtype=np.float32)
                 start += BATCH
 
             error_train /= n_train
@@ -113,10 +117,16 @@ if __name__ == '__main__':
             accuracy_train /= n_train
             accuracy_test /= n_test
 
-            error_train_list.append(error_train)
-            error_test_list.append(error_test)
-            accuracy_train_list.append(accuracy_train)
-            accuracy_test_list.append(accuracy_test)
+            if GPU:
+                error_train_list.append(error_train.get())
+                error_test_list.append(error_test.get())
+                accuracy_train_list.append(accuracy_train.get())
+                accuracy_test_list.append(accuracy_test.get())
+            else:
+                error_train_list.append(error_train)
+                error_test_list.append(error_test)
+                accuracy_train_list.append(accuracy_train)
+                accuracy_test_list.append(accuracy_test)
 
             print(f'Epoch: {i}/{EPOCH}')
             print(f'Error Train: {error_train}')
