@@ -1,5 +1,5 @@
-#import numpy as np
-import cupy as np
+import numpy as np
+#import cupy as np
 
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
@@ -153,6 +153,11 @@ class Layer:
 class OutputLayer(Layer):
     def set_delta(self, t, _, __):
         return self.y - t
+
+
+class OutputLayerManGrad(Layer):
+    def set_delta(self, grad, _, __):
+        return grad
 
 class Dropout:
     def __init__(self, dropout_ratio):
@@ -517,8 +522,8 @@ class AbstractNetwork():
         tmp = t
         for layer in self.layers[::-1]:
             tmp = layer.backward(tmp)
+        return tmp
 
     def update(self):
         for layer in self.layers:
             layer.update()
-
